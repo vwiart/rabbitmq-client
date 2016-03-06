@@ -3,8 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/streadway/amqp"
+	"github.com/vwiart/rabbitmq-client/rabbitmq"
+	"github.com/vwiart/rabbitmq-client/config"
 )
 
 func failOnError(err error, msg string) {
@@ -15,34 +19,46 @@ func failOnError(err error, msg string) {
 }
 
 func main() {
-	conn, err := amqp.Dial("amqp://guest:guest@192.168.0.1:5672/")
-	failOnError(err, "Failed to connect to RabbitMQ")
+	conn, err := amqp.Dial(config.GetConfig().RabbitMQServerURL)
+	failOnError(err, rabbitmq.FAILED_TO_CONNECT)
 	defer conn.Close()
 
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
+	failOnError(err, rabbitmq.FAILED_TO_OPEN_CHANNEL)
 	defer ch.Close()
 
-	q, err := ch.QueueDeclare(
-		"hello", // name
-		false,   // durable
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no-wait
-		nil,     // arguments
+	err = ch.ExchangeDeclare(
+		"logs",   // name
+		"fanout", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
 	)
-	failOnError(err, "Failed to declare a queue")
+	failOnError(err, rabbitmq.FAILED_TO_DECLARE_EXCHANGE)
 
-	body := "hello"
+	body := bodyFrom(os.Args)
 	err = ch.Publish(
-		"",     // exchange
-		q.Name, // routing key
+		"logs", // exchange
+		"",     // routing key
 		false,  // mandatory
 		false,  // immediate
 		amqp.Publishing{
 			ContentType: "text/plain",
 			Body:        []byte(body),
 		})
+	failOnError(err, rabbitmq.FAILED_TO_PUBLISH_MESSAGE)
+
 	log.Printf(" [x] Sent %s", body)
-	failOnError(err, "Failed to publish a message")
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello"
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
 }
